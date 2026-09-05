@@ -62,3 +62,19 @@ def new_task(payload: RequestBody):
 
         return new_task
 
+
+@app.put("/tasks/{id}")
+def update_task(id: int, payload: RequestBody):
+    if not payload.title.strip():
+        raise HTTPException(status_code=400, detail={"error": "Title cannot be empty"})
+
+        for task in tasks:
+            if task["id"] == id:
+                task["title"] = payload.title
+                task["done"] = True
+                return task
+
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "Task not found"}
+        )
