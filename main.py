@@ -78,3 +78,18 @@ def update_task(id: int, payload: RequestBody):
             status_code=404,
             detail={"error": "Task not found"}
         )
+
+
+
+@app.delete("tasks/{id}")
+def delete_task(id: int):
+    for task in tasks:
+        if task["id"] == id:
+            tasks.remove(task)
+            return {"message": "Task successfully removed!"}
+
+    
+    raise HTTPException(
+        status_code=404,
+        detail={"error": "Unknown task"}
+    )
