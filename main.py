@@ -1,15 +1,21 @@
 from fastapi import FastAPI
 
-app = FastAPI()
+app = FastAPI(title="CRUD App", version="1.0", description="A simple CRUD Task API")
+
+tasks = [
+    {"id": 1, "title": "remove trash", "done": False},
+    {"id": 2, "title": "wash cloth", "done": False},
+    {"id": 3, "title": "polish shoes", "done": False}
+]
+
+
+@app.get("/teaser")
+def home():
+    return "Hello There! Welcome to my task homepage"
 
 
 @app.get("/")
-def hello():
-    return {"message": "Hello, server"}
-
-
-@app.get("/")
-def get_root():
+def describe_api():
     return {
         "name": "Task API",
         "version": "1.0",
@@ -20,4 +26,39 @@ def get_root():
 @app.get("/health")
 def get_health():
     return {"status": "ok"}
+
+
+@app.get("/tasks")
+def get_all_tasks():
+    return tasks
+
+
+@app.get("tasks/{id}")
+def check_task_state(id: int):
+    for task in tasks:
+        if task["id"] == id:
+            return task
+
+    raise HTTPException(status_code=404, detail={"error": f"Task {id} not found"})
+
+
+@app.post("/tasks", status_code=status.HTTP_201_CREATED)
+def new_task(payload: RequestBody):
+    if not payload.title.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Title cannot be empty"}
+        )
+
+        new_id = max((task["id"] for task in tasks), default=0) + 1
+
+        new_task = {
+            "id": new_id,
+            "title": payload.title,
+            "done": False
+        }
+
+        tasks.append(new_task)
+
+        return new_task
 
