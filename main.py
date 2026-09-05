@@ -43,14 +43,12 @@ async def lifespan(app: FastAPI):
     yield     # app runs; doesn't shutdown
 
 
-
 app = FastAPI(
     title="CRUD App",
     version="1.0",
     description="A simple CRUD Task API",
     lifespan=lifespan
 )
-
 
 
 # 1. Pydantic request body schema
@@ -90,19 +88,6 @@ def get_health():
 
 
 @app.get("/tasks")
-def get_all_tasks():
-    return tasks
-
-
-# # Note the leading '/' added to the path
-# @app.get("/tasks/{id}")
-# def check_task_state(id: int):
-#     for task in tasks:
-#         if task["id"] == id:
-#             return task
-#     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {id} not found")
-
-@app.get("/tasks")
 def check_task():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -116,6 +101,19 @@ def check_task():
 
 
 
+@app.get("/tasks/{id}")
+def check_task_state(id: int):
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail={"error": f"Task {id} not found"})
+    return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
+
+
+
 @app.post("/tasks", status_code=status.HTTP_201_CREATED)
 def new_task(payload: TaskCreate):
     if not payload.title.strip():
@@ -124,15 +122,22 @@ def new_task(payload: TaskCreate):
             detail="Title cannot be empty"
         )
 
-    # Dedented outside the if block so this code actually runs
-    new_id = max((task["id"] for task in tasks), default=0) + 1
-    created_task = {
-        "id": new_id,
-        "title": payload.title.strip(),
-        "done": False
-    }
-    tasks.append(created_task)
-    return created_task
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute(
+        "INSERT INTO tasks (title, done) VALUES (?, ?)",
+        (payload.title, False)
+    )
+    conn.commit()
+
+    new_id = cur.lastrowid    # the id SQLite just assigned via AUTOINCREMENT
+
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_id,)).fetchone()
+    conn.close()
+
+    return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
 
 
 # @app.put("/tasks/{id}")
@@ -157,6 +162,7 @@ def new_task(payload: TaskCreate):
 
 #     return target_task
 
+
 @app.get("tasks/{id}")
 def check_task_state(id: int):
     conn = sqlite3.connect(DB_FILE)
@@ -171,6 +177,7 @@ def check_task_state(id: int):
         )
 
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
+
 
 
 # Note the leading '/' added to the path
