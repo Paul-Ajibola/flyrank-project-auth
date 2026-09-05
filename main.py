@@ -94,13 +94,26 @@ def get_all_tasks():
     return tasks
 
 
-# Note the leading '/' added to the path
-@app.get("/tasks/{id}")
-def check_task_state(id: int):
-    for task in tasks:
-        if task["id"] == id:
-            return task
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {id} not found")
+# # Note the leading '/' added to the path
+# @app.get("/tasks/{id}")
+# def check_task_state(id: int):
+#     for task in tasks:
+#         if task["id"] == id:
+#             return task
+#     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Task {id} not found")
+
+@app.get("/tasks")
+def check_task():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM tasks").fetchall()
+    conn.close()
+
+    return [
+        {"id": row["id"], "title": row["title"], "done": bool[row["done"]]}
+        for row in rows
+    ]
+
 
 
 @app.post("/tasks", status_code=status.HTTP_201_CREATED)
@@ -122,27 +135,42 @@ def new_task(payload: TaskCreate):
     return created_task
 
 
-@app.put("/tasks/{id}")
-def update_task(id: int, payload: TaskUpdate):
-    target_task = next((task for task in tasks if task["id"] == id), None)
-    if not target_task:
+# @app.put("/tasks/{id}")
+# def update_task(id: int, payload: TaskUpdate):
+#     target_task = next((task for task in tasks if task["id"] == id), None)
+#     if not target_task:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"Task {id} not found"
+#         )
+
+#     if payload.title is not None:
+#         if not payload.title.strip():
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Title cannot be empty"
+#             )
+#         target_task["title"] = payload.title.strip()
+
+#     if payload.done is not None:
+#         target_task["done"] = payload.done
+
+#     return target_task
+
+@app.get("tasks/{id}")
+def check_task_state(id: int):
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
+    conn.close()
+
+    if row in None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {id} not found"
+            status_code=404,
+            detail={"error": f"Task {id} not found"}
         )
 
-    if payload.title is not None:
-        if not payload.title.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Title cannot be empty"
-            )
-        target_task["title"] = payload.title.strip()
-
-    if payload.done is not None:
-        target_task["done"] = payload.done
-
-    return target_task
+    return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
 
 
 # Note the leading '/' added to the path
@@ -156,4 +184,6 @@ def delete_task(id: int):
         )
     tasks.remove(target_task)
     return None
+
+
 
