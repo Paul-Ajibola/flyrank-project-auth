@@ -61,11 +61,11 @@ class TaskUpdate(BaseModel):
 
 
 # 2. In-memory data store
-tasks = [
-    {"id": 1, "title": "remove trash", "done": False},
-    {"id": 2, "title": "wash cloth", "done": False},
-    {"id": 3, "title": "polish shoes", "done": False}
-]
+# tasks = [
+#     {"id": 1, "title": "remove trash", "done": False},
+#     {"id": 2, "title": "wash cloth", "done": False},
+#     {"id": 3, "title": "polish shoes", "done": False}
+# ]
 
 
 @app.get("/teaser")
@@ -101,16 +101,22 @@ def check_task():
 
 
 
-@app.get("/tasks/{id}")
+@app.get("tasks/{id}")
 def check_task_state(id: int):
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
     conn.close()
 
-    if row is None:
-        raise HTTPException(status_code=404, detail={"error": f"Task {id} not found"})
+    if row in None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": f"Task {id} not found"}
+        )
+
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
+
+
 
 
 
@@ -140,57 +146,58 @@ def new_task(payload: TaskCreate):
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
 
 
-# @app.put("/tasks/{id}")
-# def update_task(id: int, payload: TaskUpdate):
-#     target_task = next((task for task in tasks if task["id"] == id), None)
-#     if not target_task:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"Task {id} not found"
-#         )
 
-#     if payload.title is not None:
-#         if not payload.title.strip():
-#             raise HTTPException(
-#                 status_code=status.HTTP_400_BAD_REQUEST,
-#                 detail="Title cannot be empty"
-#             )
-#         target_task["title"] = payload.title.strip()
+@app.put("/tasks/{id}")
+def update_task(id: int, payload: RequestBody):
+    if not payload.title.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Title cannot be empty"}
+        )
 
-#     if payload.done is not None:
-#         target_task["done"] = payload.done
-
-#     return target_task
-
-
-@app.get("tasks/{id}")
-def check_task_state(id: int):
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
-    conn.close()
+    cur = conn.cursor()
 
-    if row in None:
+    existing = cur.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
+    if existing is None:
+        conn.close()
         raise HTTPException(
             status_code=404,
-            detail={"error": f"Task {id} not found"}
+            detail={"error": "Task not found"}
         )
+
+    cur.execute(
+        "UPDATE tasks SET title = ?, done = ? WHERE id = ?",
+        (payload.title, True, id)
+    )
+    conn.commit()
+
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
+    conn.close()
 
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
 
 
 
 # Note the leading '/' added to the path
-@app.delete("/tasks/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/tasks/{id}")
 def delete_task(id: int):
-    target_task = next((task for task in tasks if task["id"] == id), None)
-    if not target_task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {id} not found"
-        )
-    tasks.remove(target_task)
-    return None
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
+    existing = cur.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
+    if existing is None:
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "Unknown task"}
+        )
+
+    cur.execute("DELETE FROM tasks WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+
+    return {"message": "Task successfully removed!"}
 
 
