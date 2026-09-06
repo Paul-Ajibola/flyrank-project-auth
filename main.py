@@ -118,8 +118,6 @@ def check_task_state(id: int):
 
 
 
-
-
 @app.post("/tasks", status_code=status.HTTP_201_CREATED)
 def new_task(payload: TaskCreate):
     if not payload.title.strip():
