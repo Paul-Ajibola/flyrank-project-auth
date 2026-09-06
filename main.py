@@ -1,8 +1,7 @@
-from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 import sqlite3
-
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel, Field
 
 DB_FILE = "tasks.db"
 
@@ -12,17 +11,14 @@ async def lifespan(app: FastAPI):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-
-    # create table if it doesn't exist
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        done BOOLEAN NOT NULL DEFAULT 0
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            done BOOLEAN NOT NULL DEFAULT 0
         )
     """)
 
-    # insert sample tasks only if table is empty
     cur.execute("SELECT COUNT(*) FROM tasks")
     count = cur.fetchone()[0]
 
@@ -33,39 +29,31 @@ async def lifespan(app: FastAPI):
             ("polish shoes", False),
         ]
         cur.executemany(
-            "INSERT INTO tasks (title, done) VALUES (?, ?)",
-            sample_tasks
+            "INSERT INTO tasks (title, done) VALUES (?, ?)", sample_tasks
         )
         conn.commit()
 
     conn.close()
-
-    yield     # app runs; doesn't shutdown
+    yield
 
 
 app = FastAPI(
     title="CRUD App",
     version="1.0",
     description="A simple CRUD Task API",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
-# 1. Pydantic request body schema
 class TaskCreate(BaseModel):
-    title: str = Field(..., min_length=1, description="Task title cannot be blank")
+    title: str = Field(
+        ..., min_length=1, description="Task title cannot be blank"
+    )
+
 
 class TaskUpdate(BaseModel):
     title: str | None = None
     done: bool | None = None
-
-
-# 2. In-memory data store
-# tasks = [
-#     {"id": 1, "title": "remove trash", "done": False},
-#     {"id": 2, "title": "wash cloth", "done": False},
-#     {"id": 3, "title": "polish shoes", "done": False}
-# ]
 
 
 @app.get("/teaser")
@@ -75,11 +63,7 @@ def home():
 
 @app.get("/")
 def describe_api():
-    return {
-        "name": "Task API",
-        "version": "1.0",
-        "endpoints": ["/tasks"]
-    }
+    return {"name": "Task API", "version": "1.0", "endpoints": ["/tasks"]}
 
 
 @app.get("/health")
@@ -94,28 +78,28 @@ def check_task():
     rows = conn.execute("SELECT * FROM tasks").fetchall()
     conn.close()
 
+    # Fixed: bool(...) instead of bool[...]
     return [
-        {"id": row["id"], "title": row["title"], "done": bool[row["done"]]}
+        {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
         for row in rows
     ]
 
 
-
-@app.get("tasks/{id}")
+# Fixed: Added leading slash
+@app.get("/tasks/{id}")
 def check_task_state(id: int):
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
     conn.close()
 
-    if row in None:
+    # Fixed: 'is None' instead of 'in None'
+    if row is None:
         raise HTTPException(
-            status_code=404,
-            detail={"error": f"Task {id} not found"}
+            status_code=404, detail={"error": f"Task {id} not found"}
         )
 
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
-
 
 
 @app.post("/tasks", status_code=status.HTTP_201_CREATED)
@@ -123,7 +107,7 @@ def new_task(payload: TaskCreate):
     if not payload.title.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Title cannot be empty"
+            detail="Title cannot be empty",
         )
 
     conn = sqlite3.connect(DB_FILE)
@@ -131,43 +115,39 @@ def new_task(payload: TaskCreate):
     cur = conn.cursor()
 
     cur.execute(
-        "INSERT INTO tasks (title, done) VALUES (?, ?)",
-        (payload.title, False)
+        "INSERT INTO tasks (title, done) VALUES (?, ?)", (payload.title, False)
     )
     conn.commit()
 
-    new_id = cur.lastrowid    # the id SQLite just assigned via AUTOINCREMENT
-
+    new_id = cur.lastrowid
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_id,)).fetchone()
     conn.close()
 
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
 
 
-
+# Fixed: Swapped RequestBody for TaskCreate (or TaskUpdate if supporting partial updates)
 @app.put("/tasks/{id}")
-def update_task(id: int, payload: RequestBody):
+def update_task(id: int, payload: TaskCreate):
     if not payload.title.strip():
         raise HTTPException(
-            status_code=400,
-            detail={"error": "Title cannot be empty"}
+            status_code=400, detail={"error": "Title cannot be empty"}
         )
 
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    existing = cur.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
+    existing = cur.execute(
+        "SELECT * FROM tasks WHERE id = ?", (id,)
+    ).fetchone()
     if existing is None:
         conn.close()
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "Task not found"}
-        )
+        raise HTTPException(status_code=404, detail={"error": "Task not found"})
 
     cur.execute(
         "UPDATE tasks SET title = ?, done = ? WHERE id = ?",
-        (payload.title, True, id)
+        (payload.title, True, id),
     )
     conn.commit()
 
@@ -177,19 +157,18 @@ def update_task(id: int, payload: RequestBody):
     return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
 
 
-
-# Note the leading '/' added to the path
 @app.delete("/tasks/{id}")
 def delete_task(id: int):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    existing = cur.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
+    existing = cur.execute(
+        "SELECT * FROM tasks WHERE id = ?", (id,)
+    ).fetchone()
     if existing is None:
         conn.close()
         raise HTTPException(
-            status_code=404,
-            detail={"error": "Unknown task"}
+            status_code=404, detail={"error": "Unknown task"}
         )
 
     cur.execute("DELETE FROM tasks WHERE id = ?", (id,))
@@ -197,5 +176,3 @@ def delete_task(id: int):
     conn.close()
 
     return {"message": "Task successfully removed!"}
-
-
