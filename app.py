@@ -2,38 +2,16 @@ from contextlib import asynccontextmanager
 import sqlite3
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
+from repo import TaskRepository
+from database import init_db
+
 
 DB_FILE = "tasks.db"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            done BOOLEAN NOT NULL DEFAULT 0
-        )
-    """)
-
-    cur.execute("SELECT COUNT(*) FROM tasks")
-    count = cur.fetchone()[0]
-
-    if count == 0:
-        sample_tasks = [
-            ("remove trash", False),
-            ("wash cloth", False),
-            ("polish shoes", False),
-        ]
-        cur.executemany(
-            "INSERT INTO tasks (title, done) VALUES (?, ?)", sample_tasks
-        )
-        conn.commit()
-
-    conn.close()
+    init_db()
     yield
 
 
@@ -44,6 +22,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+repo = TaskRepository()
 
 class TaskCreate(BaseModel):
     title: str = Field(
@@ -73,106 +52,38 @@ def get_health():
 
 @app.get("/tasks")
 def check_task():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM tasks").fetchall()
-    conn.close()
-
-    # Fixed: bool(...) instead of bool[...]
-    return [
-        {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
-        for row in rows
-    ]
+    repo.get_all()
 
 
 # Fixed: Added leading slash
 @app.get("/tasks/{id}")
 def check_task_state(id: int):
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
-    conn.close()
-
-    # Fixed: 'is None' instead of 'in None'
-    if row is None:
-        raise HTTPException(
-            status_code=404, detail={"error": f"Task {id} not found"}
-        )
-
-    return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
+    task = repo.get_by_id(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+        return task
 
 
 @app.post("/tasks", status_code=status.HTTP_201_CREATED)
 def new_task(payload: TaskCreate):
     if not payload.title.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Title cannot be empty",
-        )
-
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-
-    cur.execute(
-        "INSERT INTO tasks (title, done) VALUES (?, ?)", (payload.title, False)
-    )
-    conn.commit()
-
-    new_id = cur.lastrowid
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_id,)).fetchone()
-    conn.close()
-
-    return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    return repo.create(payload.title)
 
 
 # Fixed: Swapped RequestBody for TaskCreate (or TaskUpdate if supporting partial updates)
 @app.put("/tasks/{id}")
-def update_task(id: int, payload: TaskCreate):
-    if not payload.title.strip():
-        raise HTTPException(
-            status_code=400, detail={"error": "Title cannot be empty"}
-        )
-
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-
-    existing = cur.execute(
-        "SELECT * FROM tasks WHERE id = ?", (id,)
-    ).fetchone()
-    if existing is None:
-        conn.close()
-        raise HTTPException(status_code=404, detail={"error": "Task not found"})
-
-    cur.execute(
-        "UPDATE tasks SET title = ?, done = ? WHERE id = ?",
-        (payload.title, True, id),
-    )
-    conn.commit()
-
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (id,)).fetchone()
-    conn.close()
-
-    return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
-
+def update_task(id: int, payload: TaskUpdate):
+    updated = repo.update(task_id, payload.title, payload.done)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return updated
+    
 
 @app.delete("/tasks/{id}")
 def delete_task(id: int):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
+    success = repo.delete(task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return None
 
-    existing = cur.execute(
-        "SELECT * FROM tasks WHERE id = ?", (id,)
-    ).fetchone()
-    if existing is None:
-        conn.close()
-        raise HTTPException(
-            status_code=404, detail={"error": "Unknown task"}
-        )
-
-    cur.execute("DELETE FROM tasks WHERE id = ?", (id,))
-    conn.commit()
-    conn.close()
-
-    return {"message": "Task successfully removed!"}
