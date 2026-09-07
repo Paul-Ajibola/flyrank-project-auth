@@ -28,15 +28,25 @@ class TaskRepository:
                 return new_task
 
     
-    def update(self, task_id: int, title: str, done: bool):
+    def update(self, task_id: int, title: str | None, done: bool | None):
+        # Handle partial updates gracefully
+        current = self.get_by_id(task_id)
+        if not current:
+            return None
+
+        new_title = title if title is not None else current["title"]
+        new_done = done if done is not None else current["done"]
+
         with get_db_connection() as conn:
-            with conn.cursor() as cur:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    "UPDATE tasks SET title = %s, done = %s WHERE id = %s RETURNING id, title, done;", (title, done, task_id)
+                    "UPDATE tasks SET title = %s, done = %s WHERE id = %s RETURNING id, title, done;",
+                    (new_title, new_done, task_id),
                 )
                 updated = cur.fetchone()
                 conn.commit()
                 return updated
+
 
 
     def delete(self, task_id: int):
