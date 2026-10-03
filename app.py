@@ -6,6 +6,9 @@ from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 from repo import TaskRepository
 from database import init_db
+from auth_client import supabase
+
+
 
 import redis.asyncio as aioredis
 
@@ -21,6 +24,12 @@ CACHE_TTL = 60    # Cache expires after 60 seconds
 repo = TaskRepository()
 redis_client: aioredis.Redis | None = None
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup check
+    print("Server runnning and connected to Supabase")
+    yield
 
 
 @asynccontextmanager

@@ -11,3 +11,11 @@ wheels/
 
 # env file
 .env
+.env files
+.env.local
+.env.production
+.env.development
+
+tasks.db
+*.pyc
+ 
