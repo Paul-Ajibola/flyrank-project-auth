@@ -3,16 +3,13 @@ import os
 import json
 import sqlite3
 from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from repo import TaskRepository
 from database import init_db
 from auth_client import supabase
 
 
-
 import redis.asyncio as aioredis
-
-
 
 DB_FILE = "tasks.db"
 
@@ -63,9 +60,11 @@ class TaskUpdate(BaseModel):
     done: bool | None = None
 
 
-@app.get("/teaser")
-def home():
-    return "Hello There! Welcome to my task homepage"
+class AuthPayload(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6, description="Password must be at least 6 characters")
+
+
 
 
 @app.get("/")
@@ -149,4 +148,83 @@ async def delete_task(id: int):
     # invalidate both the individual task cache and the list cache
     await redis_client.delete(f"task:{id}", "tasks:all")
     return None
+
+
+
+# --- Auth Routes ----
+@app.post("/auth/signup", status_code=status.HTTP_201_CREATED)
+async def signup(payload: AuthPayload):
+    # input validation
+    if not payload.email or not payload.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and password are required"
+        )
+    
+    try:
+        # call Supabase Auth sign_up
+        response = supabase.auth.sign_up({
+            "email": payload.email,
+            "password": payload.password
+        })
+
+        if not response.user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User registration failed"
+            )
+
+        return {
+            "message": "User created successfully",
+            "user": response.user
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@app.post("/auth/login", status_code=status.HTTP_200_OK)
+async def login(payload: AuthPayload):
+    # input validation
+    if not payload.email or not payload.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and passwords are required"
+        )
+
+        try:
+            # call supbase Auth sign_in_with_password
+            response = supabase.auth.sign_in_with_password({
+                "email": payload.email,
+                "password": payload.password
+            })
+
+            if not response.session:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid login credentials"
+                )
+
+            return {
+                "access_token": response.session.access_token,
+                "refresh_token": response.session.refresh_token,
+                "token_type": "bearer",
+                "user": response.user
+            }
+        except Exception:
+            # catch authentication errors and map to 401 unauthorized
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid login credentials"
+            )
+
+
+                
+
+
 
