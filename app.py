@@ -2,12 +2,13 @@ from contextlib import asynccontextmanager
 import os
 import json
 import sqlite3
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Header
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, EmailStr
 from repo import TaskRepository
 from database import init_db
 from auth_client import supabase
-
+from typing import Optional
 
 import redis.asyncio as aioredis
 
@@ -224,7 +225,29 @@ async def login(payload: AuthPayload):
             )
 
 
-                
 
+# the public endpoint
+@app.get("/public/info", status_code=status.HTTP_200_OK)
+def get_public_info():
+    return {"message": "Welcome stranger! This info is public."}
+
+
+# protected endpoint
+@app.get("/protected/profile", status_code=status.HTTP_401_UNAUTHORIZED)
+def get_protected_profile(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Access token required"}
+        )
+
+    token = authorization.split("Bearer ")[1].strip()
+    if not token:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Access token required"}
+        )
+
+    return {"message": "Access granted to profile"}
 
 
