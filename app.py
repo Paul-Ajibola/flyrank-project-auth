@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 import os
 import json
 import sqlite3
-from fastapi import FastAPI, HTTPException, status, Header
+from fastapi import FastAPI, HTTPException, status, Header, Depends
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials  
 from pydantic import BaseModel, Field, EmailStr
@@ -290,7 +290,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         )
 
 
-@app.get("/protected/profile", status_code=status.HTTP_200_OK)
+@app.get("/protected/profile", status_code=status.HTTP_200_OK, tags=["Protected"])
 async def get_protected_profile(current_user=Depends(get_current_user)):
     return {
         "id": current_user.id,
@@ -299,12 +299,12 @@ async def get_protected_profile(current_user=Depends(get_current_user)):
     }
 
 
-@app.get("/protected/dashboard", status_code=status.HTTP_200_OK)
-async def get_protected_profile(current_user=Depends(get_current_user)):
+@app.get("/protected/dashboard", status_code=status.HTTP_200_OK, tags=["Protected"])
+async def get_protected_profile(current_user=Depends(get_current_user), tags=["Protected"]):
     return {"message": f"Welcome to your dashboard, {current_user.email}!"}
 
 
-@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["Auth"])
 async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     try:
@@ -316,4 +316,5 @@ async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
             detail=f"logout failed: {str(e)}"
         )
     return None
+
 
