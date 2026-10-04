@@ -4,6 +4,7 @@ import json
 import sqlite3
 from fastapi import FastAPI, HTTPException, status, Header
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials  
 from pydantic import BaseModel, Field, EmailStr
 from repo import TaskRepository
 from database import init_db
@@ -23,11 +24,11 @@ repo = TaskRepository()
 redis_client: aioredis.Redis | None = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # startup check
-    print("Server runnning and connected to Supabase")
-    yield
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     # startup check
+#     print("Server runnning and connected to Supabase")
+#     yield
 
 
 @asynccontextmanager
@@ -93,7 +94,7 @@ async def check_task():
     tasks = repo.get_all()
 
     # 3. store in redis
-    await redis_client.setex(cache_key, CACHE_TIL, json.dumps(tasks))
+    await redis_client.setex(cache_key, CACHE_TTL, json.dumps(tasks))
     return tasks
 
 
@@ -105,7 +106,7 @@ async def check_task_state(id: int):
     # 1. check redis
     cached = await redis_client.get(cache_key)
     if cached:
-        return json.load(cached)
+        return json.loads(cached)
 
     # 2. cache miss: fetch from DB
     task = repo.get_by_id(id)
@@ -113,7 +114,7 @@ async def check_task_state(id: int):
         raise HTTPException(status_code=404, detail="Task not found")
     
     # 3. store in redis
-    await redis_client.setex(cache_key, CACHE_TIL, json.dumps(task))
+    await redis_client.setex(cache_key, CACHE_TTL, json.dumps(task))
     return task
 
 
@@ -198,31 +199,31 @@ async def login(payload: AuthPayload):
             detail="Email and passwords are required"
         )
 
-        try:
-            # call supbase Auth sign_in_with_password
-            response = supabase.auth.sign_in_with_password({
-                "email": payload.email,
-                "password": payload.password
-            })
+    try:
+        # call supbase Auth sign_in_with_password
+        response = supabase.auth.sign_in_with_password({
+            "email": payload.email,
+            "password": payload.password
+        })
 
-            if not response.session:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid login credentials"
-                )
-
-            return {
-                "access_token": response.session.access_token,
-                "refresh_token": response.session.refresh_token,
-                "token_type": "bearer",
-                "user": response.user
-            }
-        except Exception:
-            # catch authentication errors and map to 401 unauthorized
+        if not response.session:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid login credentials"
             )
+
+        return {
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token,
+            "token_type": "bearer",
+            "user": response.user
+        }
+    except Exception:
+        # catch authentication errors and map to 401 unauthorized
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid login credentials"
+        )
 
 
 
@@ -250,4 +251,69 @@ def get_protected_profile(authorization: Optional[str] = Header(None)):
 
     return {"message": "Access granted to profile"}
 
+
+
+
+# ====================================================================
+#               Protected endpoints using Dependency Injection
+# =====================================================================
+
+
+# create HTTPBearer instance and get_current_user function
+security = HTTPBearer()
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    Intercept requests, extracts the JWT, verifies it with Supabase
+    via supabase.auth.get_user(token) and returns user metadata.
+    """
+    token = credentials.credentials
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token required"
+        )
+
+    try:
+        # verify token with Supabase
+        user_response = supabase.auth.get_user(token)
+        if not user_response or not user_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_AUTHORIZED,
+                detail="Invalide or expired token"
+            )
+        return user_response.user
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+
+@app.get("/protected/profile", status_code=status.HTTP_200_OK)
+async def get_protected_profile(current_user=Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "created_at": str(current_user.created_at)
+    }
+
+
+@app.get("/protected/dashboard", status_code=status.HTTP_200_OK)
+async def get_protected_profile(current_user=Depends(get_current_user)):
+    return {"message": f"Welcome to your dashboard, {current_user.email}!"}
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        # terminate session with Supabase
+        supabase.auth.sing_out(token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"logout failed: {str(e)}"
+        )
+    return None
 
